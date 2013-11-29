@@ -367,7 +367,7 @@ int main(void) {
  
     USART_Transmit(0x12);
     
-		sprintf(buf, "L:%2d I:%d", loop_count, cbearing);
+		sprintf(buf, "L:%2d I:%d", loop_count, (360*cbearing)/255);
     //data = usart_getch();
     LCDClear();
     LCDString(buf);
