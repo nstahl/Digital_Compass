@@ -1,0 +1,51 @@
+
+
+Notes on using the Nokia 5110 display
+
+
+Firstly, the display uses 3.3 Volts.
+
+
+SPI Bus
+The Nokia display is mode 0 SPI.
+I used a SCK rate of 8MHz/128
+
+Note that SS MUST be an output or there is a danger of the SPI bus going into slave mode.
+
+There is some example code based on the Sparkfun example. See the P31 website for download.
+
+I had to make the following changes to the software:
+
+change references to char to be uint8_t
+change references to byte to be uint8_t (but beware LCD_clear needs a uint16_t)
+
+I defined my own RST,D/C,and SCE pins.
+I then defined all my outputs at once in the normal port_direction_init() function
+It is necessary to initialise the SPI bus using:
+	init_spi(3);			// (I used 3 to go as slow as possible)
+
+If you change the pins, use make clean to force a recompile.
+
+
+I modified LCDWrite to look like:
+
+//There are two memory banks in the LCD, data/RAM and commands. This 
+//function sets the DC pin high or low depending, and then sends
+//the data byte
+void LCDWrite(uint8_t data_or_command, uint8_t data) {
+
+	if (data_or_command) {
+		PORTB |= (1<<PB2) ;					// D/C (data / command)
+	} else {
+		PORTB &= ~(1<<PB2) ;
+	}
+	PORTB &= ~(1<<PB3) ;					// CE (Chip enable, active low)
+	xmit_spi(data);							// From spi2.c
+	PORTB |= (1<<PB3) ;
+}
+
+
+Note that programming also uses the SPI bus, so you must disconnect the LCD during programming.
+There are dual-in-line switches available to make this easier.
+
+
