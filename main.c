@@ -261,6 +261,33 @@ void LCDWrite(uint8_t data_or_command, uint8_t data) {
 	PORTB |= (1<<PB3) ;
 }
 
+void drawLine(void)
+{
+  unsigned char  j;  
+   for(j=0; j<84; j++) // top
+	{
+          gotoXY (j,0);
+	  LCDWrite (LCD_DATA,0x01);
+  } 	
+  for(j=0; j<84; j++) //Bottom
+	{
+          gotoXY (j,5);
+	  LCDWrite (LCD_DATA,0x80);
+  } 	
+
+  for(j=0; j<6; j++) // Right
+	{
+          gotoXY (83,j);
+	  LCDWrite (LCD_DATA,0xff);
+  } 	
+	for(j=0; j<6; j++) // Left
+	{
+          gotoXY (0,j);
+	  LCDWrite (LCD_DATA,0xff);
+  }
+
+}
+
 
 
 void port_direction_init(void) {
@@ -339,6 +366,12 @@ void USART0_init(void) {
   
 }
 
+/*
+
+glcd_buffer[x+ (y/8)*GLCD_LCD_WIDTH] &= ~ (1 << (y%8));
+
+*/
+
 
 int main(void) {
   interrupt_count = 0;
@@ -368,9 +401,14 @@ int main(void) {
     USART_Transmit(0x12);
     
 		sprintf(buf, "L:%2d I:%d", loop_count, cbearing);
-    //data = usart_getch();
     LCDClear();
     LCDString(buf);
+    _delay_ms(200);
+    LCDClear();
+    gotoXY(24, 42);
+    drawLine();
+    //
+    
 		_delay_ms(1000);
     loop_count++;
    
