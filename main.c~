@@ -20,6 +20,7 @@ http://www.engineersgarage.com/embedded/avr-microcontroller-projects/serial-comm
 volatile int16_t loop_count, interrupt_count, cbearing;
 volatile unsigned char cdata;
 
+#define swap(a, b) { uint8_t t = a; a = b; b = t; }
 /* Interfacing to the Nokia display used on the 5110 phone
 
 This code is copied an modified from Sparkfun's website/code example
@@ -57,6 +58,8 @@ to use Brian Jones' spi2 library for driving the LCD using the built in microcon
 //You may find a different size screen, but this one is 84 by 48 pixels
 #define LCD_X     84
 #define LCD_Y     48
+#define LCD_C_X     LCD_X/2
+#define LCD_C_Y     LCD_Y/2
 
 //This table contains the hex values that represent pixels
 //for a font that is 5 pixels wide and 8 pixels high
@@ -158,7 +161,7 @@ static const uint8_t ASCII[][5] = {
   ,{0x10, 0x08, 0x08, 0x10, 0x08} // 7e ~
   ,{0x78, 0x46, 0x41, 0x46, 0x78} // 7f DEL
 };									
-									
+									#define swap(a, b) { uint8_t t = a; a = b; b = t; }
 									
 // Function prototypes.								
 void gotoXY(uint8_t x, uint8_t y);					
@@ -267,27 +270,79 @@ void drawLine(void)
    for(j=0; j<84; j++) // top
 	{
           gotoXY (j,0);
-	  LCDWrite (LCD_COMMAND,0x01);
+	  LCDWrite (LCD_DATA,0x01);
   } 	
   for(j=0; j<84; j++) //Bottom
 	{
           gotoXY (j,5);
-	  LCDWrite (LCD_COMMAND,0x80);
+	  LCDWrite (LCD_DATA,0x80);
   } 	
 
   for(j=0; j<6; j++) // Right
 	{
           gotoXY (83,j);
-	  LCDWrite (LCD_COMMAND,0xff);
+	  LCDWrite (LCD_DATA,0xff);
   } 	
 	for(j=0; j<6; j++) // Left
 	{
           gotoXY (0,j);
-	  LCDWrite (LCD_COMMAND,0xff);
+	  LCDWrite (LCD_DATA,0xff);
   }
 
 }
+/*
+void draw_line(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
+	uint8_t steep = abs(y1 - y0) > abs(x1 - x0);
+	uint8_t dx, dy;
+	int8_t err;
+	int8_t ystep;
+	
+	if (steep) {
+		swap(x0, y0);
+		swap(x1, y1);
+	}
+	
+	if (x0 > x1) {
+		swap(x0, x1);
+		swap(y0, y1);
+	}
+	
+	dx = x1 - x0;
+	dy = abs(y1 - y0);
+	
+	err = dx / 2;
+	
+	if (y0 < y1) {
+		ystep = 1;
+	} else {
+		ystep = -1;
+	}
+	
+	for (; x0<=x1; x0++) {
+		if (steep) {
+      gotoXY (y0,x0);
+      LCDWrite (LCD_DATA,0xff);
+		} else {
+			gotoXY (x0, y0);
+      LCDWrite (LCD_DATA,0xff);
+		}
+		err -= dy;
+		if (err < 0) {
+			y0 += ystep;
+			err += dx;
+		}
+	}
+}
+*/
 
+void draw_radius(uint8_t theta) {
+int r=0;
+for (; r<LCD_C_Y/2; r++) {
+  gotoXY (LCD_C_X, LCD_C_Y+r);
+  LCDWrite (LCD_DATA,0xff);
+}
+
+}
 
 
 void port_direction_init(void) {
@@ -405,9 +460,11 @@ int main(void) {
     LCDString(buf);
     _delay_ms(200);
     LCDClear();
-    gotoXY(24, 42);
-    drawLine();
+    //gotoXY(24, 42);
+    //drawLine();
+    //draw_line(0, 0, 50, 50);
     //
+    draw_radius(0);
     
 		_delay_ms(1000);
     loop_count++;
