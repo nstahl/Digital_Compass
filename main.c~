@@ -1,13 +1,12 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 
-#include "config.h"
 
+#include "config.h"
 #include "spi2.h"					// Uses spi
 
 #include <util/delay.h>				// _delay_us() and _delay_ms() functions
 #include <util/delay_basic.h>
-
 
 /* 
 set BAUD RATE 
@@ -172,14 +171,15 @@ void LCDClear(void);
 void LCDInit(void);
 void LCDWrite(uint8_t data_or_command, uint8_t data);
 
-
-
 void gotoXY(uint8_t x, uint8_t y) {
 	LCDWrite(LCD_COMMAND, 0x80 | x);  // Column.
 	LCDWrite(LCD_COMMAND, 0x40 | y);  // Row.  ?
 }
 
-
+void gotoXYExact(uint8_t x, uint8_t y) {
+	LCDWrite(LCD_COMMAND, 0x80 | x);  // Column.
+	LCDWrite(LCD_COMMAND, 0x80 | y);  // Row.  ?
+}
 
 //This takes a large array of bits and sends them to the LCD
 void LCDBitmap(uint8_t my_array[]){
@@ -216,8 +216,6 @@ void LCDString(uint8_t *characters) {
 	}
 }
 
-
-
 //Clears the LCD by writing zeros to the entire screen
 void LCDClear(void) {
 	uint16_t index;
@@ -226,8 +224,6 @@ void LCDClear(void) {
     }
 	gotoXY(0, 0); //After we clear the display, return to the home position
 }
-
-
 
 //This sends the magical commands to the PCD8544
 void LCDInit(void) {
@@ -247,8 +243,6 @@ void LCDInit(void) {
 	LCDWrite(LCD_COMMAND, 0x0C); //Set display control, normal mode. 0x0D for inverse
 }
 
-
-
 //There are two memory banks in the LCD, data/RAM and commands. This 
 //function sets the DC pin high or low depending, and then sends
 //the data byte
@@ -264,24 +258,30 @@ void LCDWrite(uint8_t data_or_command, uint8_t data) {
 	PORTB |= (1<<PB3) ;
 }
 
+/*
+
 void drawLine(void)
 {
   unsigned char  j;  
    for(j=0; j<84; j++) // top
 	{
           gotoXY (j,0);
-	  LCDWrite (LCD_DATA,0x01);
+	  //LCDWrite (LCD_DATA,0x01);
+    LCDWrite (LCD_DATA,0xff);
   } 	
-  for(j=0; j<84; j++) //Bottom
+
+  for(j=0; j<84; j+=2) //Bottom
 	{
           gotoXY (j,5);
-	  LCDWrite (LCD_DATA,0x80);
+	  LCDWrite (LCD_DATA,0xff);
   } 	
+
 
   for(j=0; j<6; j++) // Right
 	{
-          gotoXY (83,j);
-	  LCDWrite (LCD_DATA,0xff);
+          gotoXY (60,j);
+	  //LCDWrite (LCD_DATA,0xff);
+    LCDWrite (LCD_DATA,0x80);
   } 	
 	for(j=0; j<6; j++) // Left
 	{
@@ -290,7 +290,102 @@ void drawLine(void)
   }
 
 }
-/*
+
+*/
+
+void updateLine(void)
+{
+  unsigned char  i, j; 
+  uint8_t length, lo, hi; 
+  if(cbearing <= 128) {
+    length = 42*cbearing /128; 
+    lo = 42-length;
+    hi = 42;
+  }
+  else {
+    length = 42* (255-cbearing) /128; 
+    lo = 42;
+    hi = 42+length;
+  }
+   for(j=0; j<84; j++) {
+     gotoXY(j,3);
+     if(j>lo && j<hi) {
+       //draw
+      LCDWrite (LCD_DATA,0xff);
+     }
+     else {
+      //clear
+      LCDWrite (LCD_DATA,0x00);
+     }
+   }
+   
+
+}
+
+void drawLine(void)
+{
+  unsigned char  i, j;  
+  int length; 
+  if(cbearing < 128) {
+    length = 42*cbearing /128; 
+     for(j=42-length; j<=LCD_C_X; j++) // top
+    //for(j=LCD_C_X; j<LCD_C_X+length; j++) // top
+	  {
+      gotoXY(j,3);
+      LCDWrite (LCD_DATA,0xff);
+    } 	
+  }
+  else {
+    length = 42* (255-cbearing) /128; 
+    for(j=LCD_C_X; j<LCD_C_X+length; j++) // top
+   // for(j=42-length; j<=LCD_C_X; j++) // top
+	  {
+      gotoXY(j,3);
+      LCDWrite (LCD_DATA,0xff);
+    } 
+  }
+
+  return;
+
+  for(j=0; j<3; j++) // Right
+	{
+   gotoXY (LCD_C_X,j);
+   for(i = LCD_C_X-5; i < LCD_C_X+5; i++) {
+      //this draws to a 1x5 column
+      LCDWrite (LCD_DATA,0x02);
+    } 
+  } 
+
+  return;
+  
+   for(j=0; j<84; j++) // top
+	{
+          gotoXY (j,0);
+	  //LCDWrite (LCD_DATA,0x01);
+    LCDWrite (LCD_DATA,0xff);
+  } 	
+
+  for(j=0; j<84; j+=2) //Bottom
+	{
+          gotoXY (j,5);
+	  LCDWrite (LCD_DATA,0xff);
+  } 	
+
+
+  for(j=0; j<6; j++) // Right
+	{
+          gotoXY (60,j);
+	  //LCDWrite (LCD_DATA,0xff);
+    LCDWrite (LCD_DATA,0x80);
+  } 	
+	for(j=0; j<6; j++) // Left
+	{
+          gotoXY (0,j);
+	  LCDWrite (LCD_DATA,0xff);
+  }
+
+}
+
 void draw_line(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
 	uint8_t steep = abs(y1 - y0) > abs(x1 - x0);
 	uint8_t dx, dy;
@@ -333,11 +428,11 @@ void draw_line(uint8_t x0, uint8_t y0, uint8_t x1, uint8_t y1) {
 		}
 	}
 }
-*/
+
 
 void draw_radius(uint8_t theta) {
 int r=0;
-for (; r<LCD_C_Y/2; r++) {
+for (; r<3; r++) {
   gotoXY (LCD_C_X, LCD_C_Y+r);
   LCDWrite (LCD_DATA,0xff);
 }
@@ -381,6 +476,7 @@ void USART_Transmit(char data)
   // Wait for empty transmit buffer 
   while ( !( UCSR0A & (1<<UDRE0)) );
   // Put data into buffer, sends the data 
+
   UDR0 = data;
 }
 
@@ -439,7 +535,7 @@ int main(void) {
   PORTB &= ~(1<<PB0);
 	_delay_ms(1000);
 
-  // USART
+  // USART0
   USART0_init();
 
   //enable Transmit Complete Interrupt
@@ -451,22 +547,25 @@ int main(void) {
   int data;
   //enable global interrupts
 	SREG |= 0x80;
+
+  draw_radius(0);
 	while (1) {
- 
     USART_Transmit(0x12);
+		//sprintf(buf, "L:%2d I:%d", loop_count, cbearing);
+    //sprintf(buf, "L:%2d I:%d", loop_count, cbearing);
     
-		sprintf(buf, "L:%2d I:%d", loop_count, cbearing);
-    LCDClear();
-    LCDString(buf);
-    _delay_ms(200);
-    LCDClear();
+    //LCDClear();
+    //LCDString(buf);
+   // _delay_ms(500);
+   // LCDClear();
     //gotoXY(24, 42);
-    //drawLine();
-    //draw_line(0, 0, 50, 50);
-    //
-    draw_radius(0);
+    updateLine();
     
-		_delay_ms(1000);
+    _delay_ms(100);
+    //draw_line(0, 0, 10, 50);
+    //draw_radius(0);
+    
+		//_delay_ms(1000);
     loop_count++;
    
 	}
