@@ -6,10 +6,10 @@ all: main.hex
 main.elf:     main.o   spi2.o   
 
 %.o: %.c
-	avr-gcc ${CPPFLAGS} -Os -mmcu=${MCU} -o $@ -c $^
+	avr-gcc ${CPPFLAGS} -Os -mmcu=${MCU} -o $@ -c $^ -lm
 
 %.elf: %.o
-	avr-gcc -Os -mmcu=${MCU} -o $@ $^
+	avr-gcc -Os -mmcu=${MCU} -o $@ $^ -lm
 
 %.hex: %.elf
 	avr-objcopy -j .text -j .data -O ihex $^ $@

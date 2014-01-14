@@ -1,6 +1,5 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <avr/math.h>
 
 #include "config.h"
 #include "spi2.h"
@@ -20,6 +19,7 @@ volatile char sentence_buffer[100];
 volatile char sentence_type[5] = {"HELLO"};
 volatile char GPGLL_string[5] = {"GPGLL"};
 volatile char sreg;
+
 
 /* Interfacing to the Nokia display used on the 5110 phone
 
@@ -452,8 +452,64 @@ void processSentence() {
   }
 }
 
+double toRad(double angle) {
+  return M_PI*angle/180;
+}
+
+double toDeg(double rad) {
+  return rad*180/M_PI;
+}
+
+
+double computeAngle(double slat, double slon, double dlat, double dlon) {
+
+  double diffLon = toRad(dlon-slon);
+
+  slat = toRad(slat);
+  dlat = toRad(dlat);
+  
+  double y = sin(diffLon) * cos(dlat);
+  double x = cos(slat)*sin(dlat) -
+          sin(slat)*cos(dlat)*cos(diffLon);
+  double brng = toDeg(atan2(y, x));
+  return brng;
+}
+
+double computeDistKM(double slat, double slon, double dlat, double dlon) {
+  //http://www.movable-type.co.uk/scripts/latlong.html
+  double R = 6371.1; // km
+  double diffLat = toRad(dlat-slat);
+  double diffLon = toRad(dlon-slon);
+  slat = toRad(slat);
+  dlat = toRad(dlat);
+  double a = sin(diffLat/2) * sin(diffLat/2) +
+          sin(diffLon/2) * sin(diffLon/2) * cos(slat) * cos(dlat); 
+  double c = 2 * atan2(sqrt(a), sqrt(1-a)); 
+  return R*c;  
+}
+
+
 int main(void) {
-  float myfloat = 0.1f;
+  float myfloat = 1.0f;
+  int k = myfloat;
+  float mycos = cos(0);
+  //computer lab
+  //52.210978,0.090251
+  //parkers piece
+  //52.201479,0.127147
+  double clabLat = 52.210978;
+  double clabLon = 0.090251;
+  double ppLat = 52.201479;
+  double ppLon = 0.127147;
+  double ciLat = 52.212026;
+  double ciLon = 0.113586;
+  double distToDestKMs = computeDistKM(clabLat,clabLon, ciLat, ciLon);
+  //double distToDestKMs = computeDistKM(ppLat,ppLon,clabLat,clabLon);
+  int distToDestMeters = (int) 1000*distToDestKMs;
+  double angleToDestDouble = computeAngle(clabLat,clabLon, ciLat, ciLon);
+  //ouble angleToDestDouble = computeAngle(ppLat, ppLon,clabLat,clabLon);
+  int angleToDest = (int) angleToDestDouble;
+  //angleToDest = (angleToDest + 180) % 360;
   uint8_t showGPS = 0;
   uint8_t showDirection = 1;
 
@@ -491,7 +547,6 @@ int main(void) {
   //enable global interrupts
 	SREG |= 0x80;
   //store SREG to restore interrupts once disabled
-  // /sreg = SREG;
   int process_count = 0;
   if(showDirection)
     draw_radius(0);
@@ -510,8 +565,7 @@ int main(void) {
       USART0_Transmit(0x12);
       updateLine();  
       gotoXY(0,5);
-      sprintf(buf, "D:%2d F:%.2f", interrupt_count, myfloat);
-      //sprintf(buf, "D:%2d B:%2d", interrupt_count, cbearing);
+      sprintf(buf, "D:%2d L:%2d A:%2d", distToDestMeters, interrupt_count, angleToDest);
       LCDString(buf);
     }
    
