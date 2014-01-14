@@ -1,29 +1,26 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
-
+#include <avr/math.h>
 
 #include "config.h"
-#include "spi2.h"					// Uses spi
+#include "spi2.h"
 
-#include <util/delay.h>				// _delay_us() and _delay_ms() functions
+#include <util/delay.h>
 #include <util/delay_basic.h>
 
-/* 
-set BAUD RATE 
-http://www.engineersgarage.com/embedded/avr-microcontroller-projects/serial-communication-atmega16-usart
-*/
-#define F_CPU 8E6				   // 1MHz
+
+#define F_CPU 8E6
 #define USART_BAUDRATE 9600
 
+volatile int8_t process_sentence, lat_digits, lon_digits;
 volatile int message_is_GPGLL, decimal_seen;
 volatile int16_t loop_count, interrupt_count, cbearing, comma_count, char_count,lat, lon;
-volatile unsigned char cdata, sentence_char, sentence_prev_char, test_char, last_stop;
-const char RADIX_CAPITAL[27] = {"ABCDEFGHIJKLMNOPQRSTUVWXYZ"};
-volatile char RADIX_CAPITAL2[27] = {"ABCDEFGHIJKLMNOPQRSTUVWXYZ"};
+volatile char cdata, sentence_char, sentence_prev_char, test_char, last_stop, lat_char;
+volatile char sentence_buffer[100];
 volatile char sentence_type[5] = {"HELLO"};
 volatile char GPGLL_string[5] = {"GPGLL"};
+volatile char sreg;
 
-#define swap(a, b) { uint8_t t = a; a = b; b = t; }
 /* Interfacing to the Nokia display used on the 5110 phone
 
 This code is copied an modified from Sparkfun's website/code example
@@ -164,7 +161,7 @@ static const uint8_t ASCII[][5] = {
   ,{0x10, 0x08, 0x08, 0x10, 0x08} // 7e ~
   ,{0x78, 0x46, 0x41, 0x46, 0x78} // 7f DEL
 };									
-									#define swap(a, b) { uint8_t t = a; a = b; b = t; }
+#define swap(a, b) { uint8_t t = a; a = b; b = t; }
 									
 // Function prototypes.								
 void gotoXY(uint8_t x, uint8_t y);					
@@ -295,12 +292,11 @@ for (; r<3; r++) {
   gotoXY (LCD_C_X, LCD_C_Y+r);
   LCDWrite (LCD_DATA,0xff);
 }
-
 }
 
 void port_direction_init(void) {
 
-// Note: This is likely to be the ONLY place in the code where you use PORTx= or DDRx=
+// Note: This is likely to be theatmel bearing between two lat lon coords ONLY place in the code where you use PORTx= or DDRx=
 // everywhere else you would expect to see PORTx |= or PORTx &=  
 
 	DDRB = 0xBF ;
@@ -333,59 +329,48 @@ void USART1_Transmit(char data)
   UDR1 = data;
 }
 
-//usart1 received
 ISR(USART1_RX_vect) {
-  
   sentence_char = UDR1;
-
   if(sentence_char == '$') {
-    //lat = 0;
-    lon = 0;
-    last_stop = '$';
+    //new sentence
     char_count = 0;
-    comma_count = 0;
-    message_is_GPGLL = 0;
-    return;
+    process_sentence = 1;
   }
-  if(sentence_char == ',') {
-   decimal_seen = 0;
-   last_stop = ',';
-   char_count = 0;
-   comma_count++;
-   return;
+  else {
+    //store character in buffer
+    sentence_buffer[char_count] = sentence_char;
+    char_count++;
+    char_count = char_count % 100;
   }
-  //data characters
-  //check if GPGLL
-  if(last_stop == '$' && char_count < 5) {
-       sentence_type[char_count] = sentence_char;
-       if(char_count == 4) {
-         int i = 0;
-         for(; i<5; i++) {
-           if(sentence_type[i] != GPGLL_string[i]) break;
-         }
-         if(i==5) message_is_GPGLL = 1;
-         comma_count = 0;
-       }
-       char_count++;
-       return;
-  }
-  //check if lat
-  if( message_is_GPGLL == 1 && comma_count  == 1) { // message_is_GPGLL == 1 && comma_count == 1 && decimal_seen == 0) {
-      lat++;
-      /*
-      if(sentence_char == '.') {
-        decimal_seen = 1;
-      }
-      else {
-        lat = 1;//(10*lat) + sentence_char;
-      }
-      */
-    return;
-  }
-    
-
 }
 
+/*
+//usart1 received
+ISR(USART1_RX_vect) {
+  sentence_char = UDR1;
+  if(sentence_char == '$') {
+    //new sentence
+    char_count = 0;
+    if(message_is_GPGLL) {
+      message_is_GPGLL = 0;
+      process_sentence = 1;
+    }
+    return;
+  }
+  //its data
+  //store character in buffer
+  sentence_buffer[char_count] = sentence_char;
+  if(char_count == 4) {
+    //check if this sentence is GPGLL
+    int i = 0;
+    for(; i<5; i++) {
+      if(sentence_buffer[i] != GPGLL_string[i]) break;
+    }
+    if(i==5) message_is_GPGLL = 1;
+  }
+  char_count++;
+}
+*/
 
 //transmit to usart
 void USART0_Transmit(char data)
@@ -400,9 +385,9 @@ void USART0_Transmit(char data)
 ISR(USART0_RX_vect) {
   cbearing = UDR0;
   PORTB |= (1<<PB0);  
-  _delay_ms(10);
+  _delay_ms(50);
   PORTB &= ~(1<<PB0);
-  //interrupt_count++;
+  interrupt_count++;
 }
 
 ISR(USART0_TX_vect) {
@@ -439,13 +424,39 @@ void USART1_init(void) {
   //set baud
   //UBRR0 = USART_BAUDRATE;
   // Set frame format: 8data, 1stop 
-  UCSR1C |= (1<<USBS1);
+  UCSR1C |= (0<<USBS1)|(3<<UCSZ10);
   // Enable receiver and transmitter
   UCSR1B = (1<<RXEN1)|(1<<TXEN1);
 }
 
-int main(void) {
+void processSentence() {
+  int i=0;
+  lat = 0;
+  lon = 0;
+  lat_digits = 0;
+  lon_digits = 0;
   comma_count = 0;
+  lat_char = 'X';
+
+  for(; i<100; i++) {
+    if(sentence_buffer[i] == ',') {
+      comma_count++;
+      continue;
+    }
+    if(comma_count == 1 && lat_digits < 1) {
+      //process lat
+      lat_char = sentence_buffer[i];
+      lat =  sentence_buffer[i];
+      lat_digits++;
+    }
+  }
+}
+
+int main(void) {
+  float myfloat = 0.1f;
+  uint8_t showGPS = 0;
+  uint8_t showDirection = 1;
+
   interrupt_count = 0;
   loop_count = 0;
   // Initialise ports and SPI
@@ -456,37 +467,70 @@ int main(void) {
   PORTB &= ~(1<<PB0);
 	_delay_ms(1000);
   
-  // USART0
-  USART0_init();
-  //enable Transmit Complete Interrupt
-  UCSR0B |= (1<<TXCIE0);
-  //enable Receive Complete Interrupt
-  UCSR0B |= (1<<RXCIE0);
-
-  //USART1
-  USART1_init();
-  //enable Transmit Complete Interrupt
-  UCSR1B |= (1<<TXCIE1);
-  //enable Receive Complete Interrupt
-  UCSR1B |= (1<<RXCIE1);
-
+  if(showDirection) {
+    // USART0
+    USART0_init();
+    //enable Transmit Complete Interrupt
+    UCSR0B |= (1<<TXCIE0);
+    //enable Receive Complete Interrupt
+    UCSR0B |= (1<<RXCIE0);
+  }
+  
+  if(showGPS) {
+    //USART1
+    USART1_init();
+    //enable Transmit Complete Interrupt
+    UCSR1B |= (1<<TXCIE1);
+    //enable Receive Complete Interrupt
+    UCSR1B |= (1<<RXCIE1);  
+  }
+  
 	LCDClear();
   char buf[12];
   int data;
   //enable global interrupts
 	SREG |= 0x80;
-
-  //draw_radius(0);
+  //store SREG to restore interrupts once disabled
+  // /sreg = SREG;
+  int process_count = 0;
+  if(showDirection)
+    draw_radius(0);
 	while (1) {
-    USART0_Transmit(0x12);
-    //updateLine();
-    gotoXY(0,5);
-    //sprintf(buf, "I:%2d B:%d C:%c", interrupt_count, cbearing, test_char);
-    sprintf(buf, "LAT:%d LON:%d", lat, lon);
-    LCDString(buf);
-    //LCDString(sentence_type);
-    //LCDString(sentence);
-    _delay_ms(100);
+    /*
+    test interrupt on/off
+    if(loop_count == 100) {
+      cli();
+    }
+    if(loop_count == 200) {
+      SREG = sreg;
+    }
+    */
+    
+    if(showDirection) {
+      USART0_Transmit(0x12);
+      updateLine();  
+      gotoXY(0,5);
+      sprintf(buf, "D:%2d F:%.2f", interrupt_count, myfloat);
+      //sprintf(buf, "D:%2d B:%2d", interrupt_count, cbearing);
+      LCDString(buf);
+    }
+   
+    loop_count++;
+    loop_count = loop_count %10;
+    
+    if(showGPS && process_sentence == 1) {
+      process_sentence = 0;
+      process_count++;
+      //disable interrupts
+      cli();
+      LCDClear();
+      LCDString(sentence_buffer);
+      _delay_ms(1000);
+      LCDClear();
+      //processSentence();
+      //enable interrupts
+      sei();
+    }
 	}
 }
 
