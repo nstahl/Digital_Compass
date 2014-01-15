@@ -11,11 +11,13 @@
 #define F_CPU 8E6
 #define USART_BAUDRATE 9600
 
-volatile int8_t process_sentence, lat_digits, lon_digits;
+volatile uint8_t loop_count;
+volatile int8_t angleToDest255, cbearing, relbearing;
+volatile int8_t process_sentence, lat_digits, lon_digits, process_bearing;
 volatile int message_is_GPGLL, decimal_seen;
-volatile int16_t loop_count, interrupt_count, cbearing, comma_count, char_count,lat, lon;
-volatile char cdata, sentence_char, sentence_prev_char, test_char, last_stop, lat_char;
-volatile char sentence_buffer[100];
+volatile int16_t interrupt_count, angleToDest, comma_count,lat, lon;
+volatile char cdata, sentence_char, sentence_prev_char, test_char,char_count, last_stop, lat_char;
+volatile char sentence_buffer[256] = "";
 volatile char sentence_type[5] = {"HELLO"};
 volatile char GPGLL_string[5] = {"GPGLL"};
 volatile char sreg;
@@ -259,30 +261,35 @@ void LCDWrite(uint8_t data_or_command, uint8_t data) {
 	PORTB |= (1<<PB3) ;
 }
 
-void updateLine(void)
+
+
+void updateLine(int bearing)
 {
-  unsigned char  i, j; 
+  bearing = 255-bearing;
+  unsigned char  i, j, k; 
   uint8_t length, lo, hi; 
-  if(cbearing <= 128) {
-    length = 42*cbearing /128; 
+  if(bearing <= 128) {
+    length = 42*bearing /128; 
     lo = 42-length;
     hi = 42;
   }
   else {
-    length = 42* (255-cbearing) /128; 
+    length = 42* (255-bearing) /128; 
     lo = 42;
     hi = 42+length;
   }
    for(j=0; j<84; j++) {
-     gotoXY(j,3);
-     if((j>lo && j<hi) || j == LCD_C_X) {
-       //draw
-      LCDWrite (LCD_DATA,0xff);
-     }
-     else {
-      //clear
-      LCDWrite (LCD_DATA,0x00);
-     }
+     for(k=1;k<4;k++) {
+       gotoXY(j,k);
+       if((j>lo && j<hi) || j == LCD_C_X) {
+         //draw
+        LCDWrite (LCD_DATA,0xff);
+       }
+       else {
+        //clear
+        LCDWrite (LCD_DATA,0x00);
+       }
+    }
    }
 }
 
@@ -318,6 +325,14 @@ unsigned int usart_getch()
   return(UDR0); // return the byte
 }
 
+//converts angle in range -180 to 180 to int in 0 to 255
+int8_t degreesTo0255(int angle) {
+  if(angle<0) {
+    angle *= -1;
+    return (int8_t)(255 - 128*angle/180);
+  }
+  return (int8_t)(128*angle/180);
+}
 
 //transmit to usart
 void USART1_Transmit(char data)
@@ -338,9 +353,9 @@ ISR(USART1_RX_vect) {
   }
   else {
     //store character in buffer
-    sentence_buffer[char_count] = sentence_char;
+    sentence_buffer[char_count] = sentence_char;// 'X';//sentence_char;
     char_count++;
-    char_count = char_count % 100;
+//    char_count = char_count % 256;
   }
 }
 
@@ -383,11 +398,11 @@ void USART0_Transmit(char data)
 
 //usart received
 ISR(USART0_RX_vect) {
+  process_bearing = 1;
   cbearing = UDR0;
   PORTB |= (1<<PB0);  
-  _delay_ms(50);
+  _delay_ms(20);
   PORTB &= ~(1<<PB0);
-  interrupt_count++;
 }
 
 ISR(USART0_TX_vect) {
@@ -424,9 +439,19 @@ void USART1_init(void) {
   //set baud
   //UBRR0 = USART_BAUDRATE;
   // Set frame format: 8data, 1stop 
-  UCSR1C |= (0<<USBS1)|(3<<UCSZ10);
+  UCSR1A = 0 ;
+  UCSR1B = (1<<RXCIE1) | (1<<RXEN1);
+  UCSR1C = (1<<UCSZ11) | (1<<UCSZ10);
   // Enable receiver and transmitter
-  UCSR1B = (1<<RXEN1)|(1<<TXEN1);
+}
+
+void processBearing(int8_t destAngle255, int8_t currAngle255) {
+  if( currAngle255 < destAngle255) {
+    relbearing = destAngle255 - currAngle255;
+  }
+  else {
+    relbearing = 255+angleToDest255-cbearing;
+  }
 }
 
 void processSentence() {
@@ -461,7 +486,7 @@ double toDeg(double rad) {
 }
 
 
-double computeAngle(double slat, double slon, double dlat, double dlon) {
+double computeAngleDegrees(double slat, double slon, double dlat, double dlon) {
 
   double diffLon = toRad(dlon-slon);
 
@@ -497,18 +522,48 @@ int main(void) {
   //52.210978,0.090251
   //parkers piece
   //52.201479,0.127147
+  //management
+  int demo =2;
+  /*
+  double manLat = 52.208831;
+  double manLon = 0.090457;
   double clabLat = 52.210978;
   double clabLon = 0.090251;
   double ppLat = 52.201479;
   double ppLon = 0.127147;
+  //castle inn
   double ciLat = 52.212026;
   double ciLon = 0.113586;
-  double distToDestKMs = computeDistKM(clabLat,clabLon, ciLat, ciLon);
+  double distToDestKMs;
+  double angleToDestDouble;
+  */
+  double manLat = 52.20;
+  double manLon = 0.09;
+  double clabLat = 52.21;
+  double clabLon = 0.09;
+  double ppLat = 52.20;
+  double ppLon = 0.12;
+  //castle inn
+  double ciLat = 52.21;
+  double ciLon = 0.11;
+  double distToDestKMs;
+  double angleToDestDouble;
+
+  if(demo == 1) {
+     distToDestKMs = computeDistKM(clabLat,clabLon, ciLat, ciLon);
+     angleToDestDouble = computeAngleDegrees(clabLat, clabLon, ciLat, ciLon);
+  }
+  if(demo == 2) {
+     distToDestKMs = computeDistKM(clabLat,clabLon, manLat, manLon);
+     angleToDestDouble = computeAngleDegrees(clabLat, clabLon, manLat, manLon);
+  }
+ 
   //double distToDestKMs = computeDistKM(ppLat,ppLon,clabLat,clabLon);
   int distToDestMeters = (int) 1000*distToDestKMs;
-  double angleToDestDouble = computeAngle(clabLat,clabLon, ciLat, ciLon);
-  //ouble angleToDestDouble = computeAngle(ppLat, ppLon,clabLat,clabLon);
+  //ouble angleToDestDouble = computeAngleDegrees(ppLat, ppLon,clabLat,clabLon);
   int angleToDest = (int) angleToDestDouble;
+  angleToDest255 = degreesTo0255(angleToDest);
+  
   //angleToDest = (angleToDest + 180) % 360;
   uint8_t showGPS = 0;
   uint8_t showDirection = 1;
@@ -551,39 +606,45 @@ int main(void) {
   if(showDirection)
     draw_radius(0);
 	while (1) {
-    /*
-    test interrupt on/off
-    if(loop_count == 100) {
-      cli();
-    }
-    if(loop_count == 200) {
-      SREG = sreg;
-    }
-    */
-    
+
     if(showDirection) {
       USART0_Transmit(0x12);
-      updateLine();  
+      //processBearing(angleToDest255, cbearing);
+      if(process_bearing) {
+        process_bearing = 0;
+        if(angleToDest255>cbearing) {
+          updateLine(angleToDest255-cbearing);
+        }
+        else {
+          updateLine(255-cbearing+angleToDest255);
+        }
+      }
       gotoXY(0,5);
-      sprintf(buf, "D:%2d L:%2d A:%2d", distToDestMeters, interrupt_count, angleToDest);
+      sprintf(buf, "D(m): %d", distToDestMeters);
       LCDString(buf);
     }
    
+    /*
     loop_count++;
-    loop_count = loop_count %10;
-    
+    sprintf(buf, "%4d", loop_count);
+    LCDString(buf);
+    _delay_ms(100);
+    */
+
     if(showGPS && process_sentence == 1) {
       process_sentence = 0;
       process_count++;
       //disable interrupts
+      
       cli();
-      LCDClear();
+      processSentence();
+      //LCDClear();
       LCDString(sentence_buffer);
       _delay_ms(1000);
       LCDClear();
-      //processSentence();
       //enable interrupts
       sei();
+      
     }
 	}
 }
